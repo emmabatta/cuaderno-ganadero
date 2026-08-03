@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#113823">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <title>Cuaderno Digital Ganadero</title>
+
+  <link id="favicon" rel="icon" type="image/png" href="./icon-192.png">
+  <link id="apple-icon" rel="apple-touch-icon" href="./icon-192.png">
+  <link rel="manifest" href="./manifest.json">
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+
+  <header>
+    🐄 CUADERNO DIGITAL GANADERO
+    <div><span class="badge-offline"><span data-icon="check"></span> Guardado Automático Offline</span></div>
+  </header>
+
+  <div class="tabs-header">
+    <div class="tab-btn active" data-tab="origen"><span data-icon="bag"></span> 1. Origen</div>
+    <div class="tab-btn" data-tab="destino"><span data-icon="truck"></span> 2. Destino</div>
+    <div class="tab-btn" data-tab="ventas"><span data-icon="tag"></span> 3. Ventas</div>
+    <div class="tab-btn" data-tab="historial"><span data-icon="list"></span> 4. Historial</div>
+  </div>
+
+  <div class="container">
+
+    <div id="tab-origen" class="tab-content active">
+      <div class="card">
+        <div class="card-title"><span data-icon="bag"></span> Pesada en Origen (Carga / Compra)</div>
+
+        <div class="grid-2">
+          <div>
+            <label>ID / Nombre Lote</label>
+            <input type="text" id="loteId" value="" data-form>
+          </div>
+          <div>
+            <label>Fecha</label>
+            <input type="date" id="cFecha" data-form>
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <div>
+            <label>Proveedor</label>
+            <input type="text" id="cProveedor" data-form>
+          </div>
+          <div>
+            <label>Comisionista</label>
+            <input type="text" id="cComisionista" data-form>
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <div>
+            <label>Cantidad de animales</label>
+            <input type="number" id="cAnimales" data-form>
+          </div>
+          <div>
+            <label>DTE</label>
+            <input type="text" id="cDte" data-form>
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <div>
+            <label>Peso Bruto (kg)</label>
+            <input type="number" id="cPesoBruto" data-form>
+          </div>
+          <div>
+            <label>Peso Tara (kg)</label>
+            <input type="number" id="cPesoTara" data-form>
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <div>
+            <label>Peso Neto (kg)</label>
+            <div class="computed-box" id="cPesoNeto">0 kg</div>
+          </div>
+          <div>
+            <label>Desbaste %</label>
+            <input type="number" id="cDesbastePct" step="0.1" data-form>
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <div>
+            <label>Kg Pagados</label>
+            <div class="computed-box" id="cKgPagados">0 kg</div>
+          </div>
+          <div>
+            <label>Precio $/Kg ($)</label>
+            <input type="number" id="cPrecioKg" data-form>
+          </div>
+        </div>
+
+        <div style="margin-top: 8px;">
+          <label style="min-height: auto;">Costo Hacienda ($)</label>
+          <div class="computed-box" style="font-size: 1.1rem;" id="cCostoHacienda">$ 0</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title"><span data-icon="wallet"></span> Liquidación Compra: IVA, Comisión y Flete</div>
+
+        <label style="min-height: auto; margin-bottom: 6px;">Cálculo de IVA Hacienda</label>
+        <div class="toggle-group">
+          <div class="toggle-btn active" data-toggle-group="cIvaModo" data-toggle-value="SIN_IVA">Sin IVA</div>
+          <div class="toggle-btn" data-toggle-group="cIvaModo" data-toggle-value="PORCENTAJE">% Porcentual</div>
+          <div class="toggle-btn" data-toggle-group="cIvaModo" data-toggle-value="MONTO">$ Monto</div>
+        </div>
+
+        <div class="grid-2">
+          <div id="cBoxIvaPct" style="display:none;">
+            <label>% IVA</label>
+            <input type="number" id="cIvaPct" step="0.1" data-form>
+          </div>
+          <div id="cBoxIvaMonto" style="display:none;">
+            <label>Monto IVA ($)</label>
+            <input type="number" id="cIvaMonto" data-form>
+          </div>
+          <div>
+            <label>Monto IVA Hacienda ($)</label>
+            <div class="computed-box" id="cIvaResult">$ 0</div>
+          </div>
+        </div>
+
+        <label style="min-height: auto; margin-top: 8px; margin-bottom: 6px;">Cálculo Comisión Consignatario</label>
+        <div class="toggle-group">
+          <div class="toggle-btn active" data-toggle-group="cComisionModo" data-toggle-value="PORCENTAJE">% Porcentual</div>
+          <div class="toggle-btn" data-toggle-group="cComisionModo" data-toggle-value="MONTO">$ Monto</div>
+        </div>
+
+        <div class="grid-2">
+          <div id="cBoxComisionPct">
+            <label>% Comisión</label>
+            <input type="number" id="cComisionPct" step="0.1" data-form>
+          </div>
+          <div id="cBoxComisionMonto" style="display:none;">
+            <label>Comisión Fija ($)</label>
+            <input type="number" id="cComisionMonto" data-form>
+          </div>
+          <div>
+            <label>Comisión ($)</label>
+            <div class="computed-box" id="cComisionResult">$ 0</div>
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <div>
+            <label>Flete Entrada ($)</label>
+            <input type="number" id="cFlete" data-form>
+          </div>
+          <div>
+            <label>Observación opcional</label>
+            <input type="text" id="cObservacion" data-form>
+          </div>
+        </div>
+
+        <div class="validation-box" id="compraErrores"></div>
+        <button class="btn-action btn-save" id="btnGuardarCompra"><span data-icon="check"></span> Guardar</button>
+
+        <div style="margin-top: 8px;">
+          <label style="min-height: auto;">Costo Total por Kg</label>
+          <div class="computed-box" style="font-size: 1.1rem;" id="cCostoTotalPorKg">$ 0</div>
+        </div>
+
+        <div class="total-card">
+          <div class="total-title">Costo Total Compra</div>
+          <div class="total-amount" id="cCostoTotal">$ 0</div>
+        </div>
+      </div>
+    </div>
+
+    <div id="tab-destino" class="tab-content">
+      <span class="sync-badge" id="lblSyncOrigen"><span data-icon="cloud"></span> Sincronizado con Origen</span>
+
+      <div class="card">
+        <div class="card-title"><span data-icon="truck"></span> Recepción y Pesada en Feedlot</div>
+
+        <div class="grid-2">
+          <div>
+            <label>Tropa</label>
+            <select id="dTropaId" data-form></select>
+          </div>
+          <div>
+            <label>Fecha</label>
+            <input type="date" id="dFecha" data-form>
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <div>
+            <label>Peso Bruto Llegada (kg)</label>
+            <input type="number" id="dPesoBrutoLlegada" data-form>
+          </div>
+          <div>
+            <label>Peso Tara Llegada (kg)</label>
+            <input type="number" id="dPesoTaraLlegada" data-form>
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <div>
+            <label>Peso Neto Llegada (kg)</label>
+            <div class="computed-box" id="dPesoNetoLlegada">0 kg</div>
+          </div>
+          <div>
+            <label>Merma Feedlot %</label>
+            <input type="number" id="dMermaFeedlotPct" step="0.1" data-form>
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <div>
+            <label>Merma Transporte (kg)</label>
+            <div class="computed-box alert" id="dMermaTransporteKg">0 kg</div>
+          </div>
+          <div>
+            <label>% Merma Transporte</label>
+            <div class="computed-box alert" id="dMermaTransportePct">0,00 %</div>
+          </div>
+        </div>
+
+        <div style="margin-top: 8px;">
+          <label style="min-height: auto;">Kg Reconocidos Feedlot</label>
+          <div class="computed-box" style="font-size: 1.1rem;" id="dKgReconocidosFeedlot">0 kg</div>
+        </div>
+
+        <div class="validation-box" id="recepcionErrores"></div>
+        <button class="btn-action btn-excel" id="btnGuardarRecepcion"><span data-icon="check"></span> Guardar</button>
+      </div>
+
+      <div class="card">
+        <div class="card-title"><span data-icon="heart-off"></span> Registro de Bajas (Muertes)</div>
+
+        <div class="grid-2">
+          <div>
+            <label>Tropa</label>
+            <select id="mTropaId" data-form></select>
+          </div>
+          <div>
+            <label>Fecha</label>
+            <input type="date" id="mFecha" data-form>
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <div>
+            <label>Cantidad</label>
+            <input type="number" id="mCantidad" data-form>
+          </div>
+          <div>
+            <label>Modo</label>
+            <select id="mModo" data-form>
+              <option value="AUTOMATICO">Automático</option>
+              <option value="MANUAL">Manual</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <div id="mBoxKgManual" style="display:none;">
+            <label>Kg descontados</label>
+            <input type="number" id="mKgDescontados" data-form>
+          </div>
+          <div>
+            <label>Kg descontados</label>
+            <div class="computed-box" id="mKgDescontadosResult">0 kg</div>
+          </div>
+        </div>
+
+        <div class="validation-box" id="muerteErrores"></div>
+        <button class="btn-action btn-excel" id="btnGuardarMuerte"><span data-icon="check"></span> Guardar</button>
+      </div>
+    </div>
+
+    <div id="tab-ventas" class="tab-content">
+      <span class="sync-badge" id="lblSyncVentas"><span data-icon="cloud"></span> Sincronizado con Tropa</span>
+
+      <div class="card">
+        <div class="card-title"><span data-icon="tag"></span> Despacho y Frigorífico</div>
+
+        <div class="grid-2">
+          <div>
+            <label>Tropa</label>
+            <select id="vTropaId" data-form></select>
+          </div>
+          <div>
+            <label>Fecha Venta / Salida</label>
+            <input type="date" id="vFecha" data-form>
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <div>
+            <label>Comprador</label>
+            <input type="text" id="vComprador" data-form>
+          </div>
+          <div>
+            <label>Cantidad de animales</label>
+            <input type="number" id="vAnimales" data-form>
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <div>
+            <label>Peso Bruto (kg)</label>
+            <input type="number" id="vPesoBruto" data-form>
+          </div>
+          <div>
+            <label>Peso Tara (kg)</label>
+            <input type="number" id="vPesoTara" data-form>
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <div>
+            <label>Kg vendidos</label>
+            <div class="computed-box" id="vKgVendidos">0 kg</div>
+          </div>
+          <div>
+            <label>Precio Venta ($/kg)</label>
+            <input type="number" id="vPrecioKg" data-form>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title"><span data-icon="dollar"></span> Facturación y Liquidación Venta</div>
+
+        <label style="min-height: auto; margin-bottom: 6px;">IVA Venta</label>
+        <div class="toggle-group">
+          <div class="toggle-btn active" data-toggle-group="vIvaModo" data-toggle-value="SIN_IVA">Sin IVA</div>
+          <div class="toggle-btn" data-toggle-group="vIvaModo" data-toggle-value="PORCENTAJE">% Porcentual</div>
+          <div class="toggle-btn" data-toggle-group="vIvaModo" data-toggle-value="MONTO">$ Monto</div>
+        </div>
+
+        <div class="grid-2">
+          <div id="vBoxIvaPct" style="display:none;">
+            <label>% IVA Venta</label>
+            <input type="number" id="vIvaPct" step="0.1" data-form>
+          </div>
+          <div id="vBoxIvaMonto" style="display:none;">
+            <label>Monto IVA Venta ($)</label>
+            <input type="number" id="vIvaMonto" data-form>
+          </div>
+          <div>
+            <label>IVA Venta ($)</label>
+            <div class="computed-box" id="vIvaResult">$ 0</div>
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <div>
+            <label>Comisión / Gastos Venta ($)</label>
+            <input type="number" id="vComisionVenta" data-form>
+          </div>
+          <div>
+            <label>Flete a Frigorífico ($)</label>
+            <input type="number" id="vFlete" data-form>
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <div>
+            <label>Importe sin IVA ($)</label>
+            <div class="computed-box" id="vImporteSinIva">$ 0</div>
+          </div>
+          <div>
+            <label>Total facturado ($)</label>
+            <div class="computed-box" id="vTotalFacturado">$ 0</div>
+          </div>
+        </div>
+
+        <div class="total-card">
+          <div class="total-title">Ingreso Económico Neto</div>
+          <div class="total-amount" id="vIngresoNeto">$ 0</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title"><span data-icon="chart"></span> Resultado Económico del Negocio</div>
+
+        <div class="grid-2">
+          <div>
+            <label>Costo asignado venta ($)</label>
+            <div class="computed-box info" id="vCostoAsignado">$ 0</div>
+          </div>
+          <div>
+            <label>Resultado venta ($)</label>
+            <div class="computed-box" id="vResultadoVenta">$ 0</div>
+          </div>
+        </div>
+
+        <div style="margin-top: 8px;">
+          <label style="min-height: auto;">Observación opcional</label>
+          <input type="text" id="vObservacion" data-form>
+        </div>
+
+        <div class="validation-box" id="ventaErrores"></div>
+        <button class="btn-action btn-excel" id="btnGuardarVenta"><span data-icon="check"></span> Guardar Venta</button>
+      </div>
+
+      <div class="card">
+        <div class="card-title"><span data-icon="wallet"></span> Pagos a Proveedor</div>
+
+        <div class="grid-2">
+          <div>
+            <label>Tropa</label>
+            <select id="pTropaId" data-form></select>
+          </div>
+          <div>
+            <label>Fecha</label>
+            <input type="date" id="pFecha" data-form>
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <div>
+            <label>Importe</label>
+            <input type="number" id="pImporte" data-form>
+          </div>
+          <div>
+            <label>Forma</label>
+            <select id="pForma" data-form>
+              <option value="Transferencia">Transferencia</option>
+              <option value="Efectivo">Efectivo</option>
+              <option value="Cheque">Cheque</option>
+              <option value="Otra">Otra</option>
+            </select>
+          </div>
+        </div>
+
+        <div style="margin-top: 8px;">
+          <label style="min-height: auto;">Observación opcional</label>
+          <input type="text" id="pObservacion" data-form>
+        </div>
+
+        <div class="validation-box" id="pagoErrores"></div>
+        <button class="btn-action btn-save" id="btnGuardarPago"><span data-icon="check"></span> Guardar Pago</button>
+      </div>
+    </div>
+
+    <div id="tab-historial" class="tab-content">
+      <div class="card">
+        <div class="card-title"><span data-icon="list"></span> Historial y Cuaderno Digital</div>
+        <span class="sync-badge">Cada movimiento se guarda separado y cada tropa se recalcula desde sus movimientos.</span>
+      </div>
+
+      <div class="card">
+        <div class="card-title">RESPALDO Y ARCHIVOS</div>
+        <div class="file-actions">
+          <button class="btn-action btn-excel" id="btnExportarRespaldo"><span data-icon="cloud"></span> Crear respaldo</button>
+          <button class="btn-action btn-excel" id="btnImportarRespaldo"><span data-icon="import"></span> Restaurar respaldo</button>
+          <button class="btn-action btn-excel" id="btnToggleExcelOptions"><span data-icon="export"></span> Exportar para Excel</button>
+        </div>
+        <select id="importMode" data-form>
+          <option value="REEMPLAZAR">Importar: reemplazar datos actuales</option>
+          <option value="COMBINAR">Importar: combinar sin duplicar</option>
+        </select>
+        <div class="excel-options" id="excelOptions">
+          <button class="btn-compact" id="btnExportarMovimientosCsv"><span data-icon="list"></span> Movimientos</button>
+          <button class="btn-compact" id="btnExportarResumenCsv"><span data-icon="chart"></span> Resumen de tropas</button>
+        </div>
+        <input type="text" id="cleanConfirmText" placeholder="Escribir BORRAR DATOS para limpiar" data-form>
+        <button class="btn-action btn-danger-secondary" id="btnLimpiarDatos"><span data-icon="trash"></span> Eliminar todos los datos</button>
+        <input type="file" id="backupFileInput" accept="application/json,.json" style="display:none;">
+        <div class="validation-box" id="historialErrores"></div>
+      </div>
+
+      <div id="listaHistorialLotes"></div>
+    </div>
+
+  </div>
+
+  <div id="toast" class="toast" aria-live="polite"></div>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

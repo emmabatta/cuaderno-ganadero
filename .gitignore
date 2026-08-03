@@ -1,0 +1,26 @@
+# Datos/exportaciones locales
+*.json
+!manifest.json
+*.csv
+*.xlsx
+*.xls
+
+# Archivos privados o temporales del proyecto original
+Calculadora Ganaderaaaa.txt
+audit-tests.mjs
+
+# Dependencias y artefactos de herramientas
+node_modules/
+.env
+.env.*
+.DS_Store
+Thumbs.db
+*.log
+*.tmp
+*.bak
+
+# Cachés locales
+.cache/
+.parcel-cache/
+dist/
+build/
