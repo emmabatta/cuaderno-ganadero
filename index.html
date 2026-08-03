@@ -454,6 +454,14 @@
 
       <div class="card">
         <div class="card-title">RESPALDO Y ARCHIVOS</div>
+        <span class="sync-badge" id="cloudSyncStatus">Guardado en el teléfono</span>
+        <input type="url" id="syncEndpointUrl" placeholder="URL de Apps Script" data-form>
+        <input type="url" id="syncSheetUrl" placeholder="URL de Google Sheets" data-form>
+        <button class="btn-action btn-save" id="btnGuardarSyncConfig"><span data-icon="check"></span> Guardar configuración</button>
+        <div class="file-actions">
+          <button class="btn-action btn-excel" id="btnSincronizarAhora"><span data-icon="cloud"></span> Sincronizar ahora</button>
+          <button class="btn-action btn-excel" id="btnAbrirRespaldo"><span data-icon="export"></span> Abrir respaldo</button>
+        </div>
         <div class="file-actions">
           <button class="btn-action btn-excel" id="btnExportarRespaldo"><span data-icon="cloud"></span> Crear respaldo</button>
           <button class="btn-action btn-excel" id="btnImportarRespaldo"><span data-icon="import"></span> Restaurar respaldo</button>

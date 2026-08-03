@@ -1,9 +1,10 @@
 const DB_NAME = "cuaderno_ganadero_db";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORES = {
   tropas: "tropas",
   movimientos: "movimientos",
   config: "config",
+  syncQueue: "sync_queue",
 };
 const TIPOS_PERMITIDOS = ["COMPRA", "RECEPCION", "VENTA", "PAGO", "MUERTE"];
 
@@ -26,6 +27,25 @@ function txDone(tx) {
 
 function nowIso() {
   return new Date().toISOString();
+}
+
+function createSyncTask({ entityType, entityId, operation, payload }) {
+  const createdAt = nowIso();
+  return {
+    id: `${entityType}-${entityId}-${operation}-${createdAt}-${Math.random().toString(16).slice(2)}`,
+    entityType,
+    entityId,
+    operation,
+    payload,
+    attempts: 0,
+    lastError: "",
+    createdAt,
+    updatedAt: createdAt,
+  };
+}
+
+function addSyncTask(store, task) {
+  store.add(createSyncTask(task));
 }
 
 function assertTipoMovimiento(tipo) {
@@ -56,6 +76,12 @@ export function abrirBase() {
 
       if (!db.objectStoreNames.contains(STORES.config)) {
         db.createObjectStore(STORES.config, { keyPath: "key" });
+      }
+
+      if (!db.objectStoreNames.contains(STORES.syncQueue)) {
+        const syncQueue = db.createObjectStore(STORES.syncQueue, { keyPath: "id" });
+        syncQueue.createIndex("createdAt", "createdAt", { unique: false });
+        syncQueue.createIndex("entityId", "entityId", { unique: false });
       }
     };
 
@@ -127,8 +153,9 @@ export async function crearTropa({ id: customId = "", proveedor = "", estado = "
     updatedAt: fecha,
   };
 
-  const tx = db.transaction([STORES.tropas, STORES.config], "readwrite");
+  const tx = db.transaction([STORES.tropas, STORES.config, STORES.syncQueue], "readwrite");
   tx.objectStore(STORES.tropas).add(tropa);
+  addSyncTask(tx.objectStore(STORES.syncQueue), { entityType: "TROPA", entityId: tropa.id, operation: "CREATED", payload: tropa });
   const configStore = tx.objectStore(STORES.config);
   const current = await requestToPromise(configStore.get("tropaSequence"));
   const nextSequence = Math.max(current?.value || 0, sequenceFromTropaId(id));
@@ -171,7 +198,7 @@ export async function guardarConfig(key, value) {
 
 export async function actualizarTropa(id, updates) {
   const db = await abrirBase();
-  const tx = db.transaction(STORES.tropas, "readwrite");
+  const tx = db.transaction([STORES.tropas, STORES.syncQueue], "readwrite");
   const store = tx.objectStore(STORES.tropas);
   const tropa = await requestToPromise(store.get(id));
   if (!tropa) throw new Error(`No existe la tropa ${id}.`);
@@ -184,6 +211,7 @@ export async function actualizarTropa(id, updates) {
   };
 
   store.put(actualizada);
+  addSyncTask(tx.objectStore(STORES.syncQueue), { entityType: "TROPA", entityId: id, operation: "UPDATED", payload: actualizada });
   await txDone(tx);
   return actualizada;
 }
@@ -207,16 +235,17 @@ export async function guardarMovimiento({ tropaId, tipo, fecha, datos }) {
     updatedAt: createdAt,
   };
 
-  const tx = db.transaction([STORES.movimientos, STORES.tropas], "readwrite");
+  const tx = db.transaction([STORES.movimientos, STORES.tropas, STORES.syncQueue], "readwrite");
   tx.objectStore(STORES.movimientos).add(movimiento);
   tx.objectStore(STORES.tropas).put({ ...tropa, updatedAt: createdAt });
+  addSyncTask(tx.objectStore(STORES.syncQueue), { entityType: "MOVIMIENTO", entityId: movimiento.id, operation: "CREATED", payload: movimiento });
   await txDone(tx);
   return movimiento;
 }
 
 export async function editarMovimiento(id, updates) {
   const db = await abrirBase();
-  const tx = db.transaction(STORES.movimientos, "readwrite");
+  const tx = db.transaction([STORES.movimientos, STORES.syncQueue], "readwrite");
   const store = tx.objectStore(STORES.movimientos);
   const existing = await requestToPromise(store.get(id));
   if (!existing) throw new Error(`No existe el movimiento ${id}.`);
@@ -232,14 +261,18 @@ export async function editarMovimiento(id, updates) {
   };
 
   store.put(updated);
+  addSyncTask(tx.objectStore(STORES.syncQueue), { entityType: "MOVIMIENTO", entityId: updated.id, operation: "UPDATED", payload: updated });
   await txDone(tx);
   return updated;
 }
 
 export async function eliminarMovimiento(id) {
   const db = await abrirBase();
-  const tx = db.transaction(STORES.movimientos, "readwrite");
-  tx.objectStore(STORES.movimientos).delete(id);
+  const tx = db.transaction([STORES.movimientos, STORES.syncQueue], "readwrite");
+  const store = tx.objectStore(STORES.movimientos);
+  const existing = await requestToPromise(store.get(id));
+  store.delete(id);
+  if (existing) addSyncTask(tx.objectStore(STORES.syncQueue), { entityType: "MOVIMIENTO", entityId: id, operation: "DELETED", payload: existing });
   await txDone(tx);
   return true;
 }
@@ -255,14 +288,20 @@ export async function obtenerMovimientosPorTropa(tropaId) {
 
 export async function eliminarTropa(id) {
   const db = await abrirBase();
-  const tx = db.transaction([STORES.tropas, STORES.movimientos], "readwrite");
+  const tx = db.transaction([STORES.tropas, STORES.movimientos, STORES.syncQueue], "readwrite");
   const tropasStore = tx.objectStore(STORES.tropas);
   const movimientosStore = tx.objectStore(STORES.movimientos);
+  const syncStore = tx.objectStore(STORES.syncQueue);
   const index = movimientosStore.index("tropaId");
   const movimientos = await requestToPromise(index.getAll(id));
+  const tropa = await requestToPromise(tropasStore.get(id));
 
-  movimientos.forEach((movimiento) => movimientosStore.delete(movimiento.id));
+  movimientos.forEach((movimiento) => {
+    movimientosStore.delete(movimiento.id);
+    addSyncTask(syncStore, { entityType: "MOVIMIENTO", entityId: movimiento.id, operation: "DELETED", payload: movimiento });
+  });
   tropasStore.delete(id);
+  if (tropa) addSyncTask(syncStore, { entityType: "TROPA", entityId: id, operation: "DELETED", payload: tropa });
 
   await txDone(tx);
   return true;
@@ -290,6 +329,47 @@ export async function obtenerDatosCompletos() {
   return { tropas, movimientos, config };
 }
 
+export async function obtenerSyncQueue() {
+  const db = await abrirBase();
+  const tx = db.transaction(STORES.syncQueue, "readonly");
+  const items = await requestToPromise(tx.objectStore(STORES.syncQueue).getAll());
+  await txDone(tx);
+  return items.sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
+}
+
+export async function contarSyncPendientes() {
+  const db = await abrirBase();
+  const tx = db.transaction(STORES.syncQueue, "readonly");
+  const count = await requestToPromise(tx.objectStore(STORES.syncQueue).count());
+  await txDone(tx);
+  return count;
+}
+
+export async function eliminarSyncTask(id) {
+  const db = await abrirBase();
+  const tx = db.transaction(STORES.syncQueue, "readwrite");
+  tx.objectStore(STORES.syncQueue).delete(id);
+  await txDone(tx);
+  return true;
+}
+
+export async function registrarSyncError(id, message) {
+  const db = await abrirBase();
+  const tx = db.transaction(STORES.syncQueue, "readwrite");
+  const store = tx.objectStore(STORES.syncQueue);
+  const task = await requestToPromise(store.get(id));
+  if (task) {
+    store.put({
+      ...task,
+      attempts: (task.attempts || 0) + 1,
+      lastError: String(message || "Error de sincronización"),
+      updatedAt: nowIso(),
+    });
+  }
+  await txDone(tx);
+  return true;
+}
+
 function maxTropaSequence(tropas) {
   return tropas.reduce((max, tropa) => {
     const match = String(tropa.id || "").match(/^TR-(\d+)$/);
@@ -299,7 +379,7 @@ function maxTropaSequence(tropas) {
 
 export async function reemplazarDatos({ tropas, movimientos, config }) {
   const db = await abrirBase();
-  const tx = db.transaction([STORES.tropas, STORES.movimientos, STORES.config], "readwrite");
+  const tx = db.transaction([STORES.tropas, STORES.movimientos, STORES.config, STORES.syncQueue], "readwrite");
   const tropasStore = tx.objectStore(STORES.tropas);
   const movimientosStore = tx.objectStore(STORES.movimientos);
   const configStore = tx.objectStore(STORES.config);
@@ -307,6 +387,7 @@ export async function reemplazarDatos({ tropas, movimientos, config }) {
   tropasStore.clear();
   movimientosStore.clear();
   configStore.clear();
+  tx.objectStore(STORES.syncQueue).clear();
 
   tropas.forEach((tropa) => tropasStore.add(tropa));
   movimientos.forEach((movimiento) => movimientosStore.add(movimiento));
@@ -384,9 +465,10 @@ export async function limpiarDatosConRespaldoInterno() {
   };
 
   const db = await abrirBase();
-  const tx = db.transaction([STORES.tropas, STORES.movimientos, STORES.config], "readwrite");
+  const tx = db.transaction([STORES.tropas, STORES.movimientos, STORES.config, STORES.syncQueue], "readwrite");
   tx.objectStore(STORES.tropas).clear();
   tx.objectStore(STORES.movimientos).clear();
+  tx.objectStore(STORES.syncQueue).clear();
   const configStore = tx.objectStore(STORES.config);
   configStore.put({ key: "internalBackupBeforeClear", value: backup, updatedAt: nowIso() });
   configStore.put({ key: "tropaSequence", value: 0, updatedAt: nowIso() });

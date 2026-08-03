@@ -8,6 +8,10 @@ import {
   obtenerTropa,
   obtenerConfig,
   guardarConfig,
+  obtenerSyncQueue,
+  eliminarSyncTask,
+  registrarSyncError,
+  contarSyncPendientes,
   guardarMovimiento,
   editarMovimiento,
   eliminarMovimiento,
@@ -31,12 +35,22 @@ import {
 
 const SCHEMA_VERSION = 1;
 const MOVIMIENTO_TIPOS = ["COMPRA", "RECEPCION", "VENTA", "PAGO", "MUERTE"];
+const SYNC_ENDPOINT_KEY = "googleSheetsSyncEndpoint";
+const SYNC_SHEET_URL_KEY = "googleSheetsUrl";
+const LAST_SYNC_KEY = "googleSheetsLastSyncAt";
 
 const state = {
   activeTropaId: "",
   tropas: [],
   movimientos: new Map(),
   editing: null,
+  syncing: false,
+  sync: {
+    endpointUrl: "",
+    sheetUrl: "",
+    pending: 0,
+    lastSyncAt: "",
+  },
   modes: {
     cIvaModo: "SIN_IVA",
     cComisionModo: "PORCENTAJE",
@@ -92,6 +106,96 @@ function calcForMovimiento(movimiento, resumen) {
   if (movimiento.tipo === "VENTA") return calcularVenta(movimiento.datos, resumen);
   if (movimiento.tipo === "MUERTE") return calcularMuerte(movimiento.datos, resumen);
   return {};
+}
+
+const MOVIMIENTO_COLUMNS = [
+  "ID Movimiento", "ID Tropa", "Fecha", "Tipo", "Proveedor o Comprador", "Comisionista", "DTE", "Cantidad",
+  "Peso Bruto", "Peso Tara", "Peso Neto", "Desbaste %", "Kg Pagados", "Merma Transporte Kg", "Merma Transporte %",
+  "Merma Feedlot %", "Kg Reconocidos Feedlot", "Precio Kg", "IVA", "Comisión", "Flete", "Costo Total Compra",
+  "Importe Sin IVA Venta", "Total Facturado", "Ingreso Económico Neto", "Costo Asignado", "Resultado", "Importe Pago",
+  "Forma Pago", "Kg Muerte", "Observación", "CreatedAt", "UpdatedAt", "Operación",
+];
+
+const TROPA_COLUMNS = [
+  "ID Tropa", "Proveedor", "Fecha Creación", "Estado", "Comprados", "Vendidos", "Muertos", "Restantes",
+  "Kg Disponibles", "Costo Total Compra", "Saldo Proveedor", "Ganancia Realizada", "UpdatedAt", "Operación",
+];
+
+function rowFromObject(columns, values) {
+  return columns.map((column) => values[column] ?? "");
+}
+
+function movimientoSheetRow(movimiento, operation = "UPDATED") {
+  const datos = movimiento.payload?.datos || movimiento.datos || {};
+  const rawMovimiento = movimiento.payload || movimiento;
+  const resumen = resumenDe(rawMovimiento.tropaId);
+  const calc = rawMovimiento.tipo === "COMPRA"
+    ? calcularCompra(datos)
+    : rawMovimiento.tipo === "RECEPCION"
+      ? calcularRecepcion(datos, resumen)
+      : rawMovimiento.tipo === "VENTA"
+        ? calcularVenta(datos, resumen)
+        : rawMovimiento.tipo === "MUERTE"
+          ? calcularMuerte(datos, resumen)
+          : {};
+
+  return rowFromObject(MOVIMIENTO_COLUMNS, {
+    "ID Movimiento": rawMovimiento.id,
+    "ID Tropa": rawMovimiento.tropaId,
+    "Fecha": rawMovimiento.fecha || datos.fecha || "",
+    "Tipo": rawMovimiento.tipo,
+    "Proveedor o Comprador": datos.proveedor || datos.comprador || "",
+    "Comisionista": datos.comisionista || "",
+    "DTE": datos.dte || "",
+    "Cantidad": datos.animales || datos.cantidad || "",
+    "Peso Bruto": datos.pesoBruto || datos.pesoBrutoLlegada || "",
+    "Peso Tara": datos.pesoTara || datos.pesoTaraLlegada || "",
+    "Peso Neto": calc.pesoNetoOrigen || calc.pesoNetoLlegada || calc.kgVendidos || "",
+    "Desbaste %": datos.desbastePct || "",
+    "Kg Pagados": calc.kgPagados || "",
+    "Merma Transporte Kg": calc.mermaTransporteKg || "",
+    "Merma Transporte %": calc.mermaTransportePct || "",
+    "Merma Feedlot %": datos.mermaFeedlotPct || calc.mermaFeedlotPct || "",
+    "Kg Reconocidos Feedlot": calc.kgReconocidosFeedlot || "",
+    "Precio Kg": datos.precioKg || "",
+    "IVA": calc.ivaCompra || calc.ivaVenta || "",
+    "Comisión": calc.comisionCompra || datos.comisionVenta || "",
+    "Flete": datos.flete || "",
+    "Costo Total Compra": calc.costoTotalCompra || "",
+    "Importe Sin IVA Venta": calc.importeSinIva || "",
+    "Total Facturado": calc.totalFacturado || "",
+    "Ingreso Económico Neto": calc.ingresoEconomicoNeto || "",
+    "Costo Asignado": calc.costoAsignado || "",
+    "Resultado": calc.resultadoVenta || "",
+    "Importe Pago": datos.importe || "",
+    "Forma Pago": datos.forma || "",
+    "Kg Muerte": calc.kgDescontados || "",
+    "Observación": datos.observacion || "",
+    "CreatedAt": rawMovimiento.createdAt || "",
+    "UpdatedAt": rawMovimiento.updatedAt || "",
+    "Operación": operation,
+  });
+}
+
+function tropaSheetRow(tropa, operation = "UPDATED") {
+  const rawTropa = tropa.payload || tropa;
+  const resumen = operation === "DELETED" ? {} : resumenDe(rawTropa.id);
+  return rowFromObject(TROPA_COLUMNS, {
+    "ID Tropa": rawTropa.id,
+    "Proveedor": resumen.proveedor || rawTropa.proveedor || "",
+    "Fecha Creación": rawTropa.fechaCreacion || "",
+    "Estado": operation === "DELETED" ? "ELIMINADA" : (resumen.estado || rawTropa.estado || ""),
+    "Comprados": resumen.comprados || "",
+    "Vendidos": resumen.vendidos || "",
+    "Muertos": resumen.muertos || "",
+    "Restantes": resumen.restantes ?? "",
+    "Kg Disponibles": resumen.kgDisponibles ?? "",
+    "Costo Total Compra": resumen.costoTotalCompra || "",
+    "Saldo Proveedor": resumen.saldoProveedor || "",
+    "Ganancia Realizada": resumen.gananciaRealizada || "",
+    "UpdatedAt": rawTropa.updatedAt || "",
+    "Operación": operation,
+  });
 }
 
 const ICONS = {
@@ -593,6 +697,8 @@ async function afterSave(tropaId, tipo) {
   await refreshData();
   await clearFormAfterSave(tipo, tropaId);
   await renderHistorial();
+  await refreshSyncStatus();
+  triggerAutoSync();
 }
 
 async function saveCompra() {
@@ -946,6 +1052,8 @@ async function renderHistorial() {
       if (state.activeTropaId === tropa.id) state.activeTropaId = "";
       await refreshData();
       await renderHistorial();
+      await refreshSyncStatus();
+      triggerAutoSync();
     });
 
     header.append(titleBox, del);
@@ -1243,6 +1351,152 @@ async function verifyInternalClearBackupExists() {
   return config.some((item) => item.key === "internalBackupBeforeClear" && item.value?.schemaVersion === SCHEMA_VERSION);
 }
 
+function configValue(config, key) {
+  return config.find((item) => item.key === key)?.value || "";
+}
+
+async function loadSyncConfig() {
+  const config = await obtenerConfig();
+  state.sync.endpointUrl = configValue(config, SYNC_ENDPOINT_KEY);
+  state.sync.sheetUrl = configValue(config, SYNC_SHEET_URL_KEY);
+  state.sync.lastSyncAt = configValue(config, LAST_SYNC_KEY);
+  setValue("syncEndpointUrl", state.sync.endpointUrl);
+  setValue("syncSheetUrl", state.sync.sheetUrl);
+}
+
+function setCloudSyncStatus(textValue) {
+  text("cloudSyncStatus", textValue);
+}
+
+async function refreshSyncStatus() {
+  state.sync.pending = await contarSyncPendientes();
+  if (state.sync.pending > 0) {
+    setCloudSyncStatus(`Pendiente de respaldo (${state.sync.pending})`);
+    return;
+  }
+  if (state.sync.lastSyncAt) {
+    setCloudSyncStatus("Respaldado en la nube");
+    return;
+  }
+  setCloudSyncStatus("Guardado en el teléfono");
+}
+
+function taskToSheetItem(task) {
+  if (task.entityType === "MOVIMIENTO") {
+    return {
+      queueId: task.id,
+      sheet: "MOVIMIENTOS",
+      id: task.entityId,
+      operation: task.operation,
+      columns: MOVIMIENTO_COLUMNS,
+      row: movimientoSheetRow(task, task.operation),
+    };
+  }
+
+  return {
+    queueId: task.id,
+    sheet: "TROPAS",
+    id: task.entityId,
+    operation: task.operation,
+    columns: TROPA_COLUMNS,
+    row: tropaSheetRow(task, task.operation),
+  };
+}
+
+function validSyncResult(result) {
+  return result
+    && result.status === "success"
+    && result.id
+    && (result.action === "inserted" || result.action === "updated");
+}
+
+async function syncNow(showMessage = true) {
+  if (state.syncing) return false;
+  await loadSyncConfig();
+  const endpoint = String(state.sync.endpointUrl || "").trim();
+  if (!endpoint) {
+    if (showMessage) showHistorialMessage("Configurá la URL de Apps Script antes de sincronizar.");
+    await refreshSyncStatus();
+    return false;
+  }
+
+  const tasks = await obtenerSyncQueue();
+  if (tasks.length === 0) {
+    await refreshSyncStatus();
+    if (showMessage) showHistorialMessage("No hay datos pendientes de respaldo.");
+    return true;
+  }
+
+  state.syncing = true;
+  setCloudSyncStatus(`Pendiente de respaldo (${tasks.length})`);
+
+  try {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({
+        app: "cuaderno-ganadero",
+        sentAt: new Date().toISOString(),
+        items: tasks.map(taskToSheetItem),
+      }),
+    });
+
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const result = await response.json();
+    const results = Array.isArray(result.results) ? result.results : [result];
+    const byQueueId = new Map(results.map((item) => [item.queueId || item.id, item]));
+
+    for (const task of tasks) {
+      const itemResult = byQueueId.get(task.id) || byQueueId.get(task.entityId);
+      if (validSyncResult(itemResult) && itemResult.id === task.entityId) {
+        await eliminarSyncTask(task.id);
+      } else {
+        await registrarSyncError(task.id, "Respuesta de sincronización inválida.");
+      }
+    }
+
+    state.sync.lastSyncAt = new Date().toISOString();
+    await guardarConfig(LAST_SYNC_KEY, state.sync.lastSyncAt);
+    await refreshSyncStatus();
+    if (showMessage) showHistorialMessage("Sincronización finalizada.");
+    return true;
+  } catch (error) {
+    for (const task of tasks) await registrarSyncError(task.id, error.message);
+    await refreshSyncStatus();
+    if (showMessage) showHistorialMessage("No se pudo sincronizar. Los datos siguen guardados en el teléfono.");
+    return false;
+  } finally {
+    state.syncing = false;
+  }
+}
+
+function triggerAutoSync() {
+  if (navigator.onLine && state.sync.endpointUrl) {
+    syncNow(false);
+  } else {
+    refreshSyncStatus();
+  }
+}
+
+async function guardarSyncConfig() {
+  state.sync.endpointUrl = readValue("syncEndpointUrl").trim();
+  state.sync.sheetUrl = readValue("syncSheetUrl").trim();
+  await guardarConfig(SYNC_ENDPOINT_KEY, state.sync.endpointUrl);
+  await guardarConfig(SYNC_SHEET_URL_KEY, state.sync.sheetUrl);
+  await refreshSyncStatus();
+  showHistorialMessage("Configuración de respaldo guardada.");
+  triggerAutoSync();
+}
+
+function abrirRespaldoCloud() {
+  const url = String(state.sync.sheetUrl || readValue("syncSheetUrl") || "").trim();
+  if (!url) {
+    showHistorialMessage("Configurá la URL de Google Sheets para abrir el respaldo.");
+    return;
+  }
+  window.open(url, "_blank", "noopener");
+}
+
 function bindEvents() {
   document.querySelectorAll(".tab-btn").forEach((button) => {
     button.addEventListener("click", () => switchTab(button.dataset.tab, button));
@@ -1298,6 +1552,11 @@ function bindEvents() {
   $("btnExportarMovimientosCsv").addEventListener("click", exportarMovimientosCsv);
   $("btnExportarResumenCsv").addEventListener("click", exportarResumenTropasCsv);
   $("btnLimpiarDatos").addEventListener("click", limpiarDatosDePrueba);
+  $("btnGuardarSyncConfig").addEventListener("click", guardarSyncConfig);
+  $("btnSincronizarAhora").addEventListener("click", () => syncNow(true));
+  $("btnAbrirRespaldo").addEventListener("click", abrirRespaldoCloud);
+  window.addEventListener("online", triggerAutoSync);
+  window.addEventListener("offline", refreshSyncStatus);
 }
 
 async function init() {
@@ -1305,7 +1564,9 @@ async function init() {
   bindEvents();
   await respaldarLocalStorageLegacy();
   await abrirBase();
+  await loadSyncConfig();
   await refreshData();
+  await refreshSyncStatus();
   await renderHistorial();
 
   if ("serviceWorker" in navigator) {
@@ -1336,4 +1597,7 @@ window.__ganaderoTest = {
   exportarResumenTropasCsv,
   limpiarDatosDePrueba,
   verifyInternalClearBackupExists,
+  syncNow,
+  refreshSyncStatus,
+  taskToSheetItem,
 };
