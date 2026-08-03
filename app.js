@@ -1385,6 +1385,9 @@ function taskToSheetItem(task) {
   if (task.entityType === "MOVIMIENTO") {
     return {
       queueId: task.id,
+      entity: "MOVIMIENTO",
+      entityType: "MOVIMIENTO",
+      entityId: task.entityId,
       sheet: "MOVIMIENTOS",
       id: task.entityId,
       operation: task.operation,
@@ -1395,6 +1398,9 @@ function taskToSheetItem(task) {
 
   return {
     queueId: task.id,
+    entity: "TROPA",
+    entityType: "TROPA",
+    entityId: task.entityId,
     sheet: "TROPAS",
     id: task.entityId,
     operation: task.operation,
@@ -1444,6 +1450,7 @@ async function syncNow(showMessage = true) {
 
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const result = await response.json();
+    if (result.status === "error") throw new Error(result.message || "Error de sincronizaciÃ³n.");
     const results = Array.isArray(result.results) ? result.results : [result];
     const byQueueId = new Map(results.map((item) => [item.queueId || item.id, item]));
 
@@ -1472,7 +1479,7 @@ async function syncNow(showMessage = true) {
 }
 
 function triggerAutoSync() {
-  if (navigator.onLine && state.sync.endpointUrl) {
+  if (navigator.onLine && state.sync.endpointUrl && state.sync.sheetUrl) {
     syncNow(false);
   } else {
     refreshSyncStatus();
