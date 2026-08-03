@@ -1414,8 +1414,9 @@ async function syncNow(showMessage = true) {
   if (state.syncing) return false;
   await loadSyncConfig();
   const endpoint = String(state.sync.endpointUrl || "").trim();
-  if (!endpoint) {
-    if (showMessage) showHistorialMessage("Configurá la URL de Apps Script antes de sincronizar.");
+  const sheetUrl = String(state.sync.sheetUrl || "").trim();
+  if (!endpoint || !sheetUrl) {
+    if (showMessage) showHistorialMessage("Configurá la URL de Apps Script y la URL de Google Sheets antes de sincronizar.");
     await refreshSyncStatus();
     return false;
   }
@@ -1479,12 +1480,13 @@ function triggerAutoSync() {
 }
 
 async function guardarSyncConfig() {
-  state.sync.endpointUrl = readValue("syncEndpointUrl").trim();
-  state.sync.sheetUrl = readValue("syncSheetUrl").trim();
-  await guardarConfig(SYNC_ENDPOINT_KEY, state.sync.endpointUrl);
-  await guardarConfig(SYNC_SHEET_URL_KEY, state.sync.sheetUrl);
+  const endpointUrl = readValue("syncEndpointUrl").trim();
+  const sheetUrl = readValue("syncSheetUrl").trim();
+  await guardarConfig(SYNC_ENDPOINT_KEY, endpointUrl);
+  await guardarConfig(SYNC_SHEET_URL_KEY, sheetUrl);
+  await loadSyncConfig();
   await refreshSyncStatus();
-  showHistorialMessage("Configuración de respaldo guardada.");
+  showToast("Configuración guardada");
   triggerAutoSync();
 }
 
