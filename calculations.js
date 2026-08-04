@@ -24,6 +24,7 @@ function ivaDesdeModo(base, modo, porcentaje, monto) {
 }
 
 function montoDesdeModo(base, modo, porcentaje, monto) {
+  if (modo === "SIN_CARGO") return 0;
   if (modo === "MONTO") return toNumber(monto);
   return base * (toNumber(porcentaje) / 100);
 }
@@ -39,14 +40,14 @@ export function calcularCompra(datos) {
   const costoTotalPorKg = kgPagados > 0 ? costoTotalCompra / kgPagados : 0;
 
   return {
-    pesoNetoOrigen: round2(pesoNeto),
-    kgPagados: round2(kgPagados),
-    costoHacienda: round2(costoHacienda),
-    ivaCompra: round2(ivaCompra),
-    comisionCompra: round2(comisionCompra),
-    fleteCompra: round2(fleteCompra),
-    costoTotalCompra: round2(costoTotalCompra),
-    costoTotalPorKg: round2(costoTotalPorKg),
+    pesoNetoOrigen: pesoNeto,
+    kgPagados,
+    costoHacienda,
+    ivaCompra,
+    comisionCompra,
+    fleteCompra,
+    costoTotalCompra,
+    costoTotalPorKg,
   };
 }
 
@@ -60,12 +61,12 @@ export function calcularRecepcion(datos, resumenCompra) {
   const kgReconocidosFeedlot = pesoNetoLlegada * (1 - toNumber(datos.mermaFeedlotPct) / 100);
 
   return {
-    pesoNetoOrigen: round2(pesoNetoOrigen),
-    pesoNetoLlegada: round2(pesoNetoLlegada),
-    mermaTransporteKg: round2(mermaTransporteKg),
-    mermaTransportePct: round2(mermaTransportePct),
-    mermaFeedlotPct: round2(toNumber(datos.mermaFeedlotPct)),
-    kgReconocidosFeedlot: round2(kgReconocidosFeedlot),
+    pesoNetoOrigen,
+    pesoNetoLlegada,
+    mermaTransporteKg,
+    mermaTransportePct,
+    mermaFeedlotPct: toNumber(datos.mermaFeedlotPct),
+    kgReconocidosFeedlot,
   };
 }
 
@@ -82,29 +83,38 @@ export function calcularVenta(datos, resumenDisponible) {
   const resultadoVenta = ingresoEconomicoNeto - costoAsignado;
 
   return {
-    kgVendidos: round2(kgVendidos),
-    importeSinIva: round2(importeSinIva),
-    ivaVenta: round2(ivaVenta),
-    totalFacturado: round2(totalFacturado),
-    ingresoEconomicoNeto: round2(ingresoEconomicoNeto),
-    costoUnitario: round2(costoUnitario),
-    costoAsignado: round2(costoAsignado),
-    resultadoVenta: round2(resultadoVenta),
+    kgVendidos,
+    importeSinIva,
+    ivaVenta,
+    totalFacturado,
+    ingresoEconomicoNeto,
+    costoUnitario,
+    costoAsignado,
+    resultadoVenta,
   };
 }
 
 export function calcularMuerte(datos, resumenDisponible) {
   const cantidad = toNumber(datos.cantidad);
-  const pesoPromedio = toNumber(resumenDisponible.comprados) > 0
-    ? toNumber(resumenDisponible.kgReconocidosFeedlot) / toNumber(resumenDisponible.comprados)
+  const kgReconocidosFeedlot = toNumber(resumenDisponible.kgReconocidosFeedlot);
+  const animalesIniciales = toNumber(resumenDisponible.comprados);
+  const pesoPromedio = kgReconocidosFeedlot > 0 && animalesIniciales > 0
+    ? kgReconocidosFeedlot / animalesIniciales
     : 0;
   const kgDescontados = datos.modo === "MANUAL"
     ? toNumber(datos.kgDescontados)
     : pesoPromedio * cantidad;
+  const costoUnitario = kgReconocidosFeedlot > 0
+    ? toNumber(resumenDisponible.costoTotalCompra) / kgReconocidosFeedlot
+    : 0;
+  const costoMuerte = kgDescontados * costoUnitario;
 
   return {
-    pesoPromedioAnimal: round2(pesoPromedio),
-    kgDescontados: round2(kgDescontados),
+    pesoPromedioAnimal: pesoPromedio,
+    kgDescontados,
+    costoUnitario,
+    costoMuerte,
+    perdidaMuerte: costoMuerte,
   };
 }
 
@@ -145,8 +155,13 @@ export function calcularResumenTropa(tropa, movimientos) {
     totalFacturado: 0,
     ingresoEconomicoNeto: 0,
     costoAsignadoAcumulado: 0,
+    resultadoVentas: 0,
+    costoMuertes: 0,
+    perdidaMuertes: 0,
+    resultadoTotal: 0,
     gananciaRealizada: 0,
     rentabilidadRealizada: 0,
+    rentabilidadTotal: 0,
     estado: compra ? "Comprada" : "Sin compra",
     proveedor: compra?.datos.proveedor || tropa?.proveedor || "",
     errores,
@@ -160,6 +175,10 @@ export function calcularResumenTropa(tropa, movimientos) {
   if (base.pesoNetoOrigen <= 0) errores.push("La compra tiene peso neto inválido.");
   if (base.kgPagados < 0) errores.push("La compra genera kg pagados negativos.");
 
+  if (ordenados.filter((mov) => mov.tipo === "RECEPCION").length > 1) {
+    errores.push("La tropa tiene más de una recepción; se usa la primera recepción válida.");
+  }
+
   if (recepcion) {
     const recepcionCalc = calcularRecepcion(recepcion.datos, base);
     base.pesoNetoLlegada = recepcionCalc.pesoNetoLlegada;
@@ -167,8 +186,6 @@ export function calcularResumenTropa(tropa, movimientos) {
     base.mermaTransportePct = recepcionCalc.mermaTransportePct;
     base.mermaFeedlotPct = recepcionCalc.mermaFeedlotPct;
     base.kgReconocidosFeedlot = recepcionCalc.kgReconocidosFeedlot;
-  } else {
-    base.kgReconocidosFeedlot = base.kgPagados;
   }
 
   for (const venta of ventas) {
@@ -180,25 +197,33 @@ export function calcularResumenTropa(tropa, movimientos) {
     base.totalFacturado += ventaCalc.totalFacturado;
     base.ingresoEconomicoNeto += ventaCalc.ingresoEconomicoNeto;
     base.costoAsignadoAcumulado += ventaCalc.costoAsignado;
-    base.gananciaRealizada += ventaCalc.resultadoVenta;
+    base.resultadoVentas += ventaCalc.resultadoVenta;
   }
 
   for (const muerte of muertes) {
     const muerteCalc = calcularMuerte(muerte.datos, base);
     base.muertos += toNumber(muerte.datos.cantidad);
     base.kgDescontadosMuertes += muerteCalc.kgDescontados;
+    base.costoMuertes += muerteCalc.costoMuerte;
   }
 
+  base.perdidaMuertes = base.costoMuertes;
   base.pagosAcumulados = pagos.reduce((total, pago) => total + toNumber(pago.datos.importe), 0);
   base.saldoProveedor = base.costoTotalCompra - base.pagosAcumulados;
   base.restantes = base.comprados - base.vendidos - base.muertos;
   base.kgDisponibles = base.kgReconocidosFeedlot - base.kgVendidos - base.kgDescontadosMuertes;
+  base.resultadoTotal = base.resultadoVentas - base.costoMuertes;
+  base.gananciaRealizada = base.resultadoTotal;
   base.rentabilidadRealizada = base.costoAsignadoAcumulado > 0
-    ? (base.gananciaRealizada / base.costoAsignadoAcumulado) * 100
+    ? (base.resultadoVentas / base.costoAsignadoAcumulado) * 100
+    : 0;
+  base.rentabilidadTotal = (base.costoAsignadoAcumulado + base.costoMuertes) > 0
+    ? (base.resultadoTotal / (base.costoAsignadoAcumulado + base.costoMuertes)) * 100
     : 0;
 
   if (base.restantes < 0) errores.push("La tropa tiene animales negativos por ventas o muertes.");
   if (base.kgDisponibles < 0) errores.push("La tropa tiene kg disponibles negativos.");
+  if (!recepcion && (ventas.length > 0 || muertes.length > 0)) errores.push("La tropa tiene ventas o muertes sin recepción.");
 
   if (base.restantes === 0) {
     base.estado = "Finalizada";
@@ -208,10 +233,6 @@ export function calcularResumenTropa(tropa, movimientos) {
     base.estado = "En Feedlot";
   } else {
     base.estado = "Comprada";
-  }
-
-  for (const key of Object.keys(base)) {
-    if (typeof base[key] === "number") base[key] = round2(base[key]);
   }
 
   return base;

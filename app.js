@@ -118,7 +118,8 @@ const MOVIMIENTO_COLUMNS = [
 
 const TROPA_COLUMNS = [
   "ID Tropa", "Proveedor", "Fecha Creación", "Estado", "Comprados", "Vendidos", "Muertos", "Restantes",
-  "Kg Disponibles", "Costo Total Compra", "Saldo Proveedor", "Ganancia Realizada", "UpdatedAt", "Operación",
+  "Kg Disponibles", "Costo Total Compra", "Saldo Proveedor", "Costo Muertes", "Perdida Muertes",
+  "Resultado Ventas", "Resultado Total", "Ganancia Realizada", "UpdatedAt", "Operación",
 ];
 
 function rowFromObject(columns, values) {
@@ -192,6 +193,10 @@ function tropaSheetRow(tropa, operation = "UPDATED") {
     "Kg Disponibles": resumen.kgDisponibles ?? "",
     "Costo Total Compra": resumen.costoTotalCompra || "",
     "Saldo Proveedor": resumen.saldoProveedor || "",
+    "Costo Muertes": resumen.costoMuertes || "",
+    "Perdida Muertes": resumen.perdidaMuertes || "",
+    "Resultado Ventas": resumen.resultadoVentas || "",
+    "Resultado Total": resumen.resultadoTotal || "",
     "Ganancia Realizada": resumen.gananciaRealizada || "",
     "UpdatedAt": rawTropa.updatedAt || "",
     "Operación": operation,
@@ -404,6 +409,10 @@ function validatePct(value, label, errors) {
   if (!isFiniteNumber(value) || value < 0 || value > 100) errors.push(`${label} debe estar entre 0 y 100.`);
 }
 
+function validatePctLessThan100(value, label, errors) {
+  if (!isFiniteNumber(value) || value < 0 || value >= 100) errors.push(`${label} debe ser mayor o igual a 0 y menor que 100.`);
+}
+
 function validateNonNegative(value, label, errors) {
   if (!isFiniteNumber(value) || value < 0) errors.push(`${label} debe ser un número no negativo.`);
 }
@@ -452,7 +461,7 @@ function validateRecepcion(tropaId, datos, editingMovimiento = null) {
   validatePositive(datos.pesoBrutoLlegada, "Peso bruto llegada", errors);
   validateNonNegative(datos.pesoTaraLlegada, "Peso tara llegada", errors);
   if (datos.pesoBrutoLlegada <= datos.pesoTaraLlegada) errors.push("Peso bruto llegada debe ser mayor que tara.");
-  validatePct(datos.mermaFeedlotPct, "Merma Feedlot", errors);
+  validatePctLessThan100(datos.mermaFeedlotPct, "Merma Feedlot", errors);
 
   const movs = movimientosDe(tropaId);
   if (!movs.some((mov) => mov.tipo === "COMPRA")) errors.push("No se puede guardar recepción sin compra.");
@@ -507,7 +516,7 @@ function validateMuerte(tropaId, datos, editingMovimiento = null) {
   validateRequiredDate(datos.fecha, "La fecha de muerte", errors);
   validatePositiveInteger(datos.cantidad, "Cantidad", errors);
   if (datos.modo !== "AUTOMATICO" && datos.modo !== "MANUAL") errors.push("Modo de muerte inválido.");
-  if (datos.modo === "MANUAL") validateNonNegative(datos.kgDescontados, "Kg descontados", errors);
+  if (datos.modo === "MANUAL") validatePositive(datos.kgDescontados, "Kg descontados", errors);
 
   const movs = movimientosDe(tropaId);
   if (!movs.some((mov) => mov.tipo === "COMPRA")) errors.push("No se puede guardar muerte sin compra.");
@@ -516,8 +525,11 @@ function validateMuerte(tropaId, datos, editingMovimiento = null) {
   const baseMovs = editingMovimiento ? movs.filter((mov) => mov.id !== editingMovimiento.id) : movs;
   const resumen = resumenDe(tropaId, baseMovs);
   const muerteCalc = calcularMuerte(datos, resumen);
+  if (datos.modo === "AUTOMATICO" && resumen.kgReconocidosFeedlot <= 0) {
+    errors.push("La muerte automática necesita una recepción con kg reconocidos Feedlot.");
+  }
   if (datos.cantidad > resumen.restantes) errors.push("No se puede registrar más muertos que animales disponibles.");
-  if (muerteCalc.kgDescontados < 0) errors.push("Kg descontados no puede ser negativo.");
+  if (muerteCalc.kgDescontados <= 0) errors.push("Kg descontados debe ser mayor que cero.");
   if (muerteCalc.kgDescontados > resumen.kgDisponibles) errors.push("No se puede descontar más kg que los disponibles.");
 
   return errors;
@@ -564,6 +576,7 @@ function renderMuertePreview() {
   const resumen = resumenDe(tropaId);
   const calc = calcularMuerte(muerteDatos(), resumen);
   text("mKgDescontadosResult", kg(calc.kgDescontados));
+  text("mCostoMuerteResult", money(calc.costoMuerte));
 }
 
 function renderVentaPreview() {
@@ -917,6 +930,10 @@ function editMovimiento(movimiento) {
 }
 
 async function deleteMovimiento(movimiento) {
+  if (movimiento.tipo === "RECEPCION") {
+    const dependientes = movimientosDe(movimiento.tropaId).some((mov) => mov.id !== movimiento.id && (mov.tipo === "VENTA" || mov.tipo === "MUERTE"));
+    if (dependientes && !confirm("Eliminar la recepción deja ventas o muertes sin base Feedlot. La tropa se recalculará desde movimientos y mostrará el error hasta cargar una nueva recepción. ¿Continuar?")) return;
+  }
   if (!confirm(`¿Seguro que querés eliminar el movimiento ${movimiento.tipo}?`)) return;
   await eliminarMovimiento(movimiento.id);
   await afterSave(movimiento.tropaId, movimiento.tipo);
@@ -976,6 +993,7 @@ function movimientoDetalle(movimiento, resumenTropa) {
     appendPair(detail, "Cantidad", datos.cantidad || 0);
     appendPair(detail, "Modo", datos.modo || "S/D");
     appendPair(detail, "Kg descontados", fmt(calc.kgDescontados));
+    appendPair(detail, "Costo muerte", money(calc.costoMuerte));
   }
 
   return detail;
@@ -1066,9 +1084,12 @@ async function renderHistorial() {
     appendPair(detail, "Estado", resumen.estado);
     appendPair(detail, "Animales restantes", resumen.restantes);
     appendPair(detail, "Kg disponibles", fmt(resumen.kgDisponibles));
+    appendPair(detail, "Kg muertos", fmt(resumen.kgDescontadosMuertes));
     appendPair(detail, "Costo total", money(resumen.costoTotalCompra));
+    appendPair(detail, "Costo muertes", money(resumen.costoMuertes));
     appendPair(detail, "Saldo proveedor", money(resumen.saldoProveedor));
-    appendPair(detail, "Ganancia realizada", money(resumen.gananciaRealizada));
+    appendPair(detail, "Resultado ventas", money(resumen.resultadoVentas));
+    appendPair(detail, "Resultado total", money(resumen.resultadoTotal));
     card.appendChild(detail);
 
     if (resumen.errores.length > 0) {
@@ -1213,7 +1234,7 @@ async function exportarMovimientosCsv() {
     "Merma Feedlot %", "Kg Reconocidos Feedlot", "Precio por Kg", "Modo IVA", "Valor IVA", "Monto IVA",
     "Modo Comisión", "Valor Comisión", "Monto Comisión", "Flete", "Costo Hacienda", "Costo Total Compra",
     "Importe Sin IVA Venta", "IVA Venta", "Total Facturado", "Ingreso Económico Neto", "Costo Asignado",
-    "Resultado Venta", "Importe Pago", "Forma Pago", "Kg Muerte", "Observación", "CreatedAt", "UpdatedAt",
+    "Resultado Venta", "Importe Pago", "Forma Pago", "Kg Muerte", "Costo Muerte", "Perdida Muerte", "Observación", "CreatedAt", "UpdatedAt",
   ];
   rows.push(headers);
 
@@ -1260,6 +1281,8 @@ async function exportarMovimientosCsv() {
         d.importe || "",
         d.forma || "",
         c.kgDescontados || "",
+        c.costoMuerte || "",
+        c.perdidaMuerte || "",
         d.observacion || "",
         movimiento.createdAt || "",
         movimiento.updatedAt || "",
@@ -1279,7 +1302,8 @@ async function exportarResumenTropasCsv() {
     "Merma Feedlot %", "Kg Reconocidos Feedlot", "Kg Vendidos", "Kg Muertes", "Kg Disponibles",
     "Costo Hacienda", "IVA Compra", "Comisión Compra", "Flete Compra", "Costo Total Compra", "Pagos",
     "Saldo Proveedor", "Importe Sin IVA Ventas", "IVA Ventas", "Total Facturado", "Ingreso Económico Neto",
-    "Costo Asignado", "Ganancia Realizada", "Rentabilidad Realizada %",
+    "Costo Asignado", "Costo Muertes", "Perdida Muertes", "Resultado Ventas", "Resultado Total",
+    "Ganancia Realizada", "Rentabilidad Realizada %", "Rentabilidad Total %",
   ]];
 
   state.tropas.forEach((tropa) => {
@@ -1317,8 +1341,13 @@ async function exportarResumenTropasCsv() {
       resumen.totalFacturado,
       resumen.ingresoEconomicoNeto,
       resumen.costoAsignadoAcumulado,
+      resumen.costoMuertes,
+      resumen.perdidaMuertes,
+      resumen.resultadoVentas,
+      resumen.resultadoTotal,
       resumen.gananciaRealizada,
       resumen.rentabilidadRealizada,
+      resumen.rentabilidadTotal,
     ]);
   });
 
