@@ -28,6 +28,7 @@ import {
   calcularVenta,
   calcularMuerte,
   calcularResumenTropa,
+  calcularDiasFeedlot,
   fmt,
   fmt2,
   toNumber,
@@ -548,6 +549,7 @@ function renderCompraPreview() {
 
 function renderRecepcionPreview() {
   const tropaId = getSelectedTropaId("d");
+  renderDiasFeedlot(tropaId);
   const hasRecepcionInput = ["dPesoBrutoLlegada", "dPesoTaraLlegada", "dMermaFeedlotPct"].some((id) => readValue(id) !== "");
   if (!hasRecepcionInput) {
     text("dPesoNetoLlegada", "0 kg");
@@ -568,6 +570,13 @@ function renderRecepcionPreview() {
   } else if ($("recepcionErrores")?.innerText.includes("Aumento de peso")) {
     setErrors("recepcionErrores", []);
   }
+}
+
+function renderDiasFeedlot(tropaId) {
+  const tropa = state.tropas.find((item) => item.id === tropaId) || null;
+  const movimientos = movimientosDe(tropaId);
+  const info = calcularDiasFeedlot(tropa, movimientos);
+  text("dDiasFeedlot", info.texto);
 }
 
 function renderMuertePreview() {

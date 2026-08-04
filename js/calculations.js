@@ -13,6 +13,69 @@ export function toNumber(value) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+export function parseLocalDate(value) {
+  const match = String(value || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const date = new Date(year, month - 1, day);
+  if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) return null;
+  return date;
+}
+
+export function localDateOnly(date = new Date()) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+function diffCalendarDays(startDate, endDate) {
+  const msPerDay = 24 * 60 * 60 * 1000;
+  return Math.floor((localDateOnly(endDate).getTime() - localDateOnly(startDate).getTime()) / msPerDay);
+}
+
+function lastClosingMovement(movimientos, fechaRecepcion) {
+  return [...movimientos]
+    .filter((mov) => (mov.tipo === "VENTA" || mov.tipo === "MUERTE") && String(mov.fecha || "") >= fechaRecepcion)
+    .sort((a, b) => String(a.fecha || a.createdAt || "").localeCompare(String(b.fecha || b.createdAt || "")))
+    .at(-1) || null;
+}
+
+export function calcularDiasFeedlot(tropa, movimientos, hoy = new Date()) {
+  const recepcion = [...movimientos]
+    .sort((a, b) => String(a.createdAt || a.fecha || "").localeCompare(String(b.createdAt || b.fecha || "")))
+    .find((mov) => mov.tipo === "RECEPCION");
+
+  if (!recepcion) {
+    return { estado: "SIN_RECEPCION", dias: null, texto: "Sin ingreso al feedlot registrado" };
+  }
+
+  const fechaRecepcion = recepcion.datos?.fecha || recepcion.fecha;
+  const ingreso = parseLocalDate(fechaRecepcion);
+  if (!ingreso) return { estado: "FECHA_INVALIDA", dias: null, texto: "Fecha de ingreso inv\u00e1lida" };
+
+  const hoyLocal = localDateOnly(hoy);
+  if (ingreso.getTime() > hoyLocal.getTime()) {
+    return { estado: "FECHA_FUTURA", dias: null, texto: "Fecha de ingreso inv\u00e1lida" };
+  }
+
+  const resumen = calcularResumenTropa(tropa, movimientos);
+  let fin = hoyLocal;
+  let cerrada = false;
+  if (resumen.restantes <= 0) {
+    const cierre = lastClosingMovement(movimientos, fechaRecepcion);
+    const fechaCierre = parseLocalDate(cierre?.datos?.fecha || cierre?.fecha);
+    if (fechaCierre && fechaCierre.getTime() >= ingreso.getTime()) {
+      fin = fechaCierre;
+      cerrada = true;
+    }
+  }
+
+  const dias = Math.max(0, diffCalendarDays(ingreso, fin));
+  const unidad = dias === 1 ? "d\u00eda" : "d\u00edas";
+  const prefijo = cerrada ? "Permanencia total" : "Dias en feedlot";
+  return { estado: cerrada ? "CERRADA" : "ABIERTA", dias, texto: `${prefijo.replace("Dias", "D\u00edas")}: ${dias} ${unidad}` };
+}
+
 export function round2(value) {
   return Math.round((toNumber(value) + Number.EPSILON) * 100) / 100;
 }

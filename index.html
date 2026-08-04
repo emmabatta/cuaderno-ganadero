@@ -7,10 +7,10 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <title>Cuaderno Digital Ganadero</title>
 
-  <link id="favicon" rel="icon" type="image/png" href="./icon-192.png">
-  <link id="apple-icon" rel="apple-touch-icon" href="./icon-192.png">
+  <link id="favicon" rel="icon" type="image/png" href="./assets/icons/icon-192.png">
+  <link id="apple-icon" rel="apple-touch-icon" href="./assets/icons/icon-192.png">
   <link rel="manifest" href="./manifest.json">
-  <link rel="stylesheet" href="./styles.css">
+  <link rel="stylesheet" href="./css/styles.css">
 </head>
 <body>
 
@@ -229,6 +229,10 @@
         <div style="margin-top: 8px;">
           <label style="min-height: auto;">Kg Reconocidos Feedlot</label>
           <div class="computed-box" style="font-size: 1.1rem;" id="dKgReconocidosFeedlot">0 kg</div>
+        </div>
+        <div style="margin-top: 8px;">
+          <label style="min-height: auto;">Permanencia en Feedlot</label>
+          <div class="computed-box info" id="dDiasFeedlot">Sin ingreso al feedlot registrado</div>
         </div>
 
         <div class="validation-box" id="recepcionErrores"></div>
@@ -492,6 +496,6 @@
 
   <div id="toast" class="toast" aria-live="polite"></div>
 
-  <script type="module" src="./app.js"></script>
+  <script type="module" src="./js/app.js"></script>
 </body>
 </html>

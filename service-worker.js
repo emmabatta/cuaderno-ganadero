@@ -1,15 +1,15 @@
-const CACHE_NAME = "cuaderno-ganadero-v17";
+const CACHE_NAME = "cuaderno-ganadero-v18";
 const APP_SHELL = [
   "./",
   "./index.html",
-  "./styles.css",
-  "./app.js",
-  "./db.js",
-  "./calculations.js",
+  "./css/styles.css",
+  "./js/app.js",
+  "./js/db.js",
+  "./js/calculations.js",
   "./manifest.json",
   "./service-worker.js",
-  "./icon-192.png",
-  "./icon-512.png",
+  "./assets/icons/icon-192.png",
+  "./assets/icons/icon-512.png",
 ];
 
 self.addEventListener("install", (event) => {
@@ -37,6 +37,7 @@ self.addEventListener("fetch", (event) => {
     caches.match(event.request).then((cached) => {
       if (cached) return cached;
       return fetch(event.request).then((response) => {
+        if (!response.ok) return response;
         const copy = response.clone();
         caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
         return response;
