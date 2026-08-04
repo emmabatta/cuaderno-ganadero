@@ -1,4 +1,4 @@
-const CACHE_NAME = "cuaderno-ganadero-v18";
+const CACHE_NAME = "cuaderno-ganadero-v19";
 const APP_SHELL = [
   "./",
   "./index.html",

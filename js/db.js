@@ -286,6 +286,21 @@ export async function obtenerMovimientosPorTropa(tropaId) {
   return movimientos.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
+export async function obtenerMovimientosAgrupados() {
+  const db = await abrirBase();
+  const tx = db.transaction(STORES.movimientos, "readonly");
+  const movimientos = await requestToPromise(tx.objectStore(STORES.movimientos).getAll());
+  await txDone(tx);
+
+  const grupos = new Map();
+  for (const movimiento of movimientos) {
+    if (!grupos.has(movimiento.tropaId)) grupos.set(movimiento.tropaId, []);
+    grupos.get(movimiento.tropaId).push(movimiento);
+  }
+  grupos.forEach((items) => items.sort((a, b) => b.createdAt.localeCompare(a.createdAt)));
+  return grupos;
+}
+
 export async function eliminarTropa(id) {
   const db = await abrirBase();
   const tx = db.transaction([STORES.tropas, STORES.movimientos, STORES.syncQueue], "readwrite");

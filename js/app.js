@@ -16,6 +16,7 @@ import {
   editarMovimiento,
   eliminarMovimiento,
   obtenerMovimientosPorTropa,
+  obtenerMovimientosAgrupados,
   eliminarTropa,
   obtenerDatosCompletos,
   reemplazarDatos,
@@ -39,11 +40,14 @@ const MOVIMIENTO_TIPOS = ["COMPRA", "RECEPCION", "VENTA", "PAGO", "MUERTE"];
 const SYNC_ENDPOINT_KEY = "googleSheetsSyncEndpoint";
 const SYNC_SHEET_URL_KEY = "googleSheetsUrl";
 const LAST_SYNC_KEY = "googleSheetsLastSyncAt";
+const LAST_TROPA_KEY = "cuadernoGanaderoLastTropaId";
 
 const state = {
+  activeTab: "origen",
   activeTropaId: "",
   tropas: [],
   movimientos: new Map(),
+  historialDirty: true,
   editing: null,
   syncing: false,
   sync: {
@@ -270,6 +274,23 @@ function normalizeTropaId(value) {
   return String(value || "").trim().toUpperCase();
 }
 
+function readLastTropaId() {
+  return normalizeTropaId(localStorage.getItem(LAST_TROPA_KEY));
+}
+
+function rememberTropaId(tropaId) {
+  const normalized = normalizeTropaId(tropaId);
+  if (normalized) localStorage.setItem(LAST_TROPA_KEY, normalized);
+}
+
+function clearLastTropaId() {
+  localStorage.removeItem(LAST_TROPA_KEY);
+}
+
+function markHistorialDirty() {
+  state.historialDirty = true;
+}
+
 function setValue(id, value) {
   const el = $(id);
   if (el) el.value = value ?? "";
@@ -301,12 +322,13 @@ function setCompraIdEditable(editable) {
 }
 
 function switchTab(tabId, btnEl = null) {
+  state.activeTab = tabId;
   document.querySelectorAll(".tab-content").forEach((tab) => tab.classList.remove("active"));
   document.querySelectorAll(".tab-btn").forEach((button) => button.classList.remove("active"));
   $(`tab-${tabId}`).classList.add("active");
   const button = btnEl || document.querySelector(`.tab-btn[data-tab="${tabId}"]`);
   if (button) button.classList.add("active");
-  if (tabId === "historial") renderHistorial();
+  if (tabId === "historial") renderHistorialIfNeeded();
 }
 
 function setMode(group, value) {
@@ -621,11 +643,13 @@ function renderPreviews() {
 
 async function refreshData() {
   state.tropas = await obtenerTropas();
-  state.movimientos = new Map();
-  for (const tropa of state.tropas) {
-    state.movimientos.set(tropa.id, await obtenerMovimientosPorTropa(tropa.id));
-  }
-  if (!state.activeTropaId && state.tropas.length > 0) state.activeTropaId = state.tropas[0].id;
+  state.movimientos = await obtenerMovimientosAgrupados();
+  const lastTropaId = readLastTropaId();
+  const activeExists = state.tropas.some((tropa) => tropa.id === state.activeTropaId);
+  const lastExists = state.tropas.some((tropa) => tropa.id === lastTropaId);
+  if (!activeExists) state.activeTropaId = lastExists ? lastTropaId : (state.tropas[0]?.id || "");
+  if (state.activeTropaId) rememberTropaId(state.activeTropaId);
+  if (lastTropaId && !lastExists) clearLastTropaId();
   renderTropaSelects();
   await suggestNextTropaId();
   renderPreviews();
@@ -715,10 +739,12 @@ async function clearFormAfterSave(tipo, tropaId) {
 async function afterSave(tropaId, tipo) {
   await actualizarEstadoTropa(tropaId);
   state.activeTropaId = tropaId;
+  rememberTropaId(tropaId);
+  markHistorialDirty();
   clearEditing();
   await refreshData();
   await clearFormAfterSave(tipo, tropaId);
-  await renderHistorial();
+  await renderHistorialIfNeeded();
   await refreshSyncStatus();
   triggerAutoSync();
 }
@@ -1076,9 +1102,13 @@ async function renderHistorial() {
     del.addEventListener("click", async () => {
       if (!confirm(`¿Seguro que querés borrar la tropa ${tropa.id} y todos sus movimientos?`)) return;
       await eliminarTropa(tropa.id);
-      if (state.activeTropaId === tropa.id) state.activeTropaId = "";
+      if (state.activeTropaId === tropa.id) {
+        state.activeTropaId = "";
+        clearLastTropaId();
+      }
+      markHistorialDirty();
       await refreshData();
-      await renderHistorial();
+      await renderHistorialIfNeeded();
       await refreshSyncStatus();
       triggerAutoSync();
     });
@@ -1111,6 +1141,12 @@ async function renderHistorial() {
     contenedor.appendChild(card);
     movimientos.forEach((movimiento) => contenedor.appendChild(renderMovimientoCard(movimiento, resumen)));
   }
+}
+
+async function renderHistorialIfNeeded() {
+  if (state.activeTab !== "historial" || !state.historialDirty) return;
+  await renderHistorial();
+  state.historialDirty = false;
 }
 
 async function buildBackupObject(metadata = {}) {
@@ -1562,7 +1598,10 @@ function bindEvents() {
       renderPreviews();
     });
     input.addEventListener("change", () => {
-      if (input.id.endsWith("TropaId")) state.activeTropaId = input.value;
+      if (input.id.endsWith("TropaId")) {
+        state.activeTropaId = input.value;
+        rememberTropaId(input.value);
+      }
       renderPreviews();
     });
   });
@@ -1613,12 +1652,14 @@ async function init() {
   await abrirBase();
   await loadSyncConfig();
   await refreshData();
-  await refreshSyncStatus();
-  await renderHistorial();
 
-  if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register("./service-worker.js").catch(() => {});
-  }
+  window.setTimeout(async () => {
+    await refreshSyncStatus();
+    triggerAutoSync();
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register("./service-worker.js").catch(() => {});
+    }
+  }, 0);
 }
 
 window.addEventListener("load", init);
